@@ -84,6 +84,7 @@ def insert_quant_act_modules(model):
     '''Inserts quantization modules for selected layers
     in a given graph.
     '''
+    # index=0
     for name, layer in model._modules.items():
         # output module has layernorm, and dropout is not considered
         if name is 'output' or name is 'dropout':
@@ -383,7 +384,7 @@ class BertPreTrainedModel_Quant(nn.Module):
             serialization_dir = tempdir
         # Load config
         if config_dir is not None and config_dir is not "":
-            raise RuntimeError("[DEPRECATED] Model config_dir.")
+            # raise RuntimeError("[DEPRECATED] Model config_dir.")
             config_file = config_dir
         else:
             config_file = os.path.join(serialization_dir, CONFIG_NAME)
@@ -455,10 +456,10 @@ class BertPreTrainedModel_Quant(nn.Module):
             logger.info(
                 "Weights from pretrained model not used in {}: {}".format(
                     model.__class__.__name__, unexpected_keys))
-        if len(error_msgs) > 0:
-            raise RuntimeError(
-                'Error(s) in loading state_dict for {}:\n\t{}'.format(
-                    model.__class__.__name__, "\n\t".join(error_msgs)))
+        # if len(error_msgs) > 0:
+        #     raise RuntimeError(
+        #         'Error(s) in loading state_dict for {}:\n\t{}'.format(
+        #             model.__class__.__name__, "\n\t".join(error_msgs)))
         return model
 
 
@@ -640,7 +641,16 @@ class BertModel_Quant(BertPreTrainedModel_Quant):
             if 'quantize_activation' in config_dict and config_dict[
                     'quantize_activation']:
                 logger.info("activation will be quantized.")
+                index=0
                 self.encoder = insert_quant_act_modules(self.encoder)
+
+                for module_path, module in self.encoder.named_modules():
+                    classname = module.__class__.__name__
+                    # print(module_path, classname)
+                    if classname is 'QuantLinear_Act' and module_path in config_dict['activation_bits']:
+                        number_bits = config_dict['activation_bits'][module_path]
+                        module.reset_bits(number_bits)
+                        # print(module.weight_bit_act, module.weight_bit)
 
             if config_dict.get('emb_bits', None):
                 logger.info("embeddings' bits will be reset.")

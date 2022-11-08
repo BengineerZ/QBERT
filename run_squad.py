@@ -879,6 +879,12 @@ def run_squad_w_args(args):
         config_dir=args.config_dir,
         config=args.config)
 
+    
+    # for name, module in model.named_modules():
+    #     print(name)
+
+    # sys.exit()
+
     if args.fp16:
         model.half()
     model.to(device)
@@ -1062,6 +1068,11 @@ def run_squad_w_args(args):
             args.output_dir, do_lower_case=args.do_lower_case)
     else:
         model = BertForQuestionAnswering.from_pretrained(args.bert_model)
+
+        # model = BertForQuestionAnswering.from_pretrained(
+        #     args.output_dir, config=args.config)
+        # tokenizer = BertTokenizer.from_pretrained(
+        #     args.output_dir, do_lower_case=args.do_lower_case)
 
     model.to(device)
 
