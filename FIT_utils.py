@@ -13,8 +13,10 @@ class FIT:
         self.hook_layers(model, layer_filter)
         batch = next(iter(data_loader))
         batch = tuple(t.to(device) for t in batch)
-        input_ids, input_mask, segment_ids, start_positions, end_positions = batch
-        _ = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
+        input_ids, input_mask, segment_ids, label_ids = batch
+
+        # define a new function to compute loss values for both output_modes
+        _ = model(input_ids, segment_ids, input_mask, labels=None)
         act_sizes = []
         act_nums = []
         for name, module in model.named_modules():
@@ -33,10 +35,14 @@ class FIT:
              
     def layer_accumulator(self, model, layer_filter=None):
         def layer_filt(nm):
-            if layer_filter is not None:
-                return layer_filter not in name
+            if any([lf in nm for lf in layer_filter]):
+                return False
             else:
                 return True
+#             if layer_filter is not None:
+#                 return layer_filter not in nm
+#             else:
+#                 return True
         layers = []
         names = []
         param_nums = []
@@ -69,8 +75,8 @@ class FIT:
             m.act_in = inp
 
         def layer_filt(nm):
-            if layer_filter is not None:
-                return layer_filter not in name
+            if any([lf in nm for lf in layer_filter]):
+                return False
             else:
                 return True
 
@@ -87,7 +93,8 @@ class FIT:
            criterion, 
            tol=1e-3, 
            min_iterations=100, 
-           max_iterations=100):
+           max_iterations=100,
+           num_labels=None):
         
         model.eval()
         F_act_acc = []
@@ -99,7 +106,7 @@ class FIT:
 
         total_batches = 0.
 
-        TFv_act = [torch.zeros(ps).to(self.device) for ps in self.act_sizes[1:]]  # accumulate result
+        TFv_act = [torch.zeros(ps).to(self.device) for ps in self.act_sizes]  # accumulate result
         TFv_param = [torch.zeros(ps).to(self.device) for ps in self.param_sizes]  # accumulate result
 
         ranges_param_acc = []
@@ -111,9 +118,18 @@ class FIT:
                 model.zero_grad()
                 
                 batch = tuple(t.to(self.device) for t in data)
-                batch_size= len(batch)
-                input_ids, input_mask, segment_ids, start_positions, end_positions = batch
-                loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
+                batch_size = len(batch)
+                input_ids, input_mask, segment_ids, label_ids = batch
+
+                # define a new function to compute loss values for both output_modes
+                logits = model(input_ids, segment_ids, input_mask, labels=None)
+                
+                loss = criterion(logits.view(-1, num_labels), label_ids.view(-1))
+                
+#                 batch = tuple(t.to(self.device) for t in data)
+#                 batch_size= len(batch)
+#                 input_ids, input_mask, segment_ids, start_positions, end_positions = batch
+#                 loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
                 
                 ranges_act = []
                 actsH = []
@@ -130,7 +146,7 @@ class FIT:
                     paramsH.append(paramH)
                     ranges_param.append((torch.max(paramH.data) - torch.min(paramH.data)).detach().cpu().numpy())
                     
-                G = torch.autograd.grad(loss, [*paramsH, *actsH[1:]])
+                G = torch.autograd.grad(loss, [*paramsH, *actsH])
                 
                 G2 = []
                 for g in G:
@@ -186,7 +202,7 @@ class FIT:
         return (ranges/(2**config - 1))**2
 
     def FIT(self, wconfig, aconfig):
-        pert_acts = self.noise_model(np.mean(self.Ra, axis=0)[1:], aconfig)
+        pert_acts = self.noise_model(np.mean(self.Ra, axis=0), aconfig)
         pert_params = self.noise_model(np.mean(self.Rw, axis=0), wconfig)
 
         f_acts_T = pert_acts*self.EFa
